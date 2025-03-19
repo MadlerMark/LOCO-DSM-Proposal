@@ -1,0 +1,44 @@
+\documentclass[sigplan,nonacm]{acmart}
+\usepackage[normalem]{ulem}
+\title{Proposal}
+\author{Mark Madler}
+\begin{document}
+\maketitle
+
+\section{General Design}
+This work will consist of modifying an existing compiler (gcc or llvm) to 
+support LOCO as a backend for disaggregated memory. Generally this compiler will 
+look up address locations on loads and stores to determine whether it is local/remote 
+and will also determine whether it is cached or not. Additionally all cached data will 
+be tagged with a dirty delta to allow for seamless release consistency. On releases 
+data will be written back to its home-node and only modified data will be written back 
+(scatter). If two nodes wish to write back the same byte-area they are in a data race 
+and it is the programmers fault. 
+
+There will be {} major components in this design. They are as follows:
+
+\begin{itemize}
+    \item Load/store compiler modification.
+    \item synchronization primitive modification for OpenMP.
+    \item non-cached memory will be stored as a hash map.
+\end{itemize}
+
+
+some outstanding questions to answer:
+\begin{itemize}
+    \item does the local node cache its own data?
+    \item does a system like this exist for TCP/IP?
+    \item specifics of design implementation.
+\end{itemize}
+
+\section{My TODO list}
+\begin{itemize}
+    \item get cmatose.c working on r320s to diagnose issue. (is it librdmacm?)
+    \item change all config scripts in Odyssey.
+    \item Finish this proposal.
+\end{itemize}
+
+
+% \bibliographystyle{acm}
+% \bibliography{relworks}
+\end{document}
