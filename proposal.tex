@@ -6,7 +6,7 @@
 \maketitle
 
 \section{General Design}
-This work will consist of modifying an existing compiler (gcc or llvm) to 
+This work will consist of modifying an existing compiler (gcc or llvm**) to 
 support LOCO as a backend for disaggregated memory. Generally this compiler will 
 look up address locations on loads and stores to determine whether it is local/remote 
 and will also determine whether it is cached or not. Additionally all cached data will 
@@ -18,7 +18,13 @@ and it is the programmers fault.
 There will be {} major components in this design. They are as follows:
 
 \begin{itemize}
-    \item Load/store compiler modification.
+    \item Load/store compiler modification. Need to detect these special loads and stores
+    So this might be in LLVM's SelectionDAGBuilder.cpp in "visitStore" and "visitLoad". 
+    llvm-project/llvm/lib/CodeGen/SelectionDAG/SelectionDAGBuilder.
+    \item LOCO loads/stores need to be tagged at some point. Either these objects should 
+    be at special virtual addresses by modifying malloc things. I am thinking this will be 
+    done in clang (llvm-project/clang/lib/CodeGen/CGExprCXX.cpp) what I found here should work 
+    for calls with new, note sure about malloc. Malloc might be in CGCall??
     \item synchronization primitive modification for OpenMP.
     \item non-cached memory will be stored as a hash map.
 \end{itemize}
@@ -28,12 +34,15 @@ some outstanding questions to answer:
 \begin{itemize}
     \item does the local node cache its own data?
     \item does a system like this exist for TCP/IP?
-    \item specifics of design implementation.
+    \item specifics of design implementation. i.e does loco have all openMP primitives?
 \end{itemize}
 
 \section{My TODO list}
 \begin{itemize}
-    \item get cmatose.c working on r320s to diagnose issue. (is it librdmacm?)
+    \item get cmatose.c working on r320s to diagnose issue. (is it librdmacm?). CMATost
+    works. THe issue must be in our configuration
+    \item invalid args from loco on r320s, seems to not in in hostname lookup, but maybe 
+    in rdma_getaddrinfo from that hostname. Will need to check and debug that specifically.
     \item change all config scripts in Odyssey.
     \item Finish this proposal.
 \end{itemize}
