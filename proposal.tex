@@ -78,7 +78,8 @@ work with things like task synchronization and thread numbering across nodes.
 % There will be {} major components in this design. They are as follows:
 
 \subsection{Memory Consistency}
-
+The memory consistency model in this design should be relatively simple. There 
+is release consistency. I would assume that on each write to a location
 % \begin{itemize}
 %     \item Load/store compiler modification. Need to detect these special loads and stores
 %     So this might be in LLVM's SelectionDAGBuilder.cpp in "visitStore" and "visitLoad". 
