@@ -1,48 +1,115 @@
 \documentclass[sigplan,nonacm]{acmart}
 \usepackage[normalem]{ulem}
+\usepackage{wrapfig}
+\usepackage{listings}
+\usepackage{caption}
+\usepackage{subcaption}
 \title{Proposal}
 \author{Mark Madler}
 \begin{document}
 \maketitle
 
-\section{General Design}
+\section{Design}
 This work will consist of modifying an existing compiler (gcc or llvm**) to 
-support LOCO as a backend for disaggregated memory. Generally this compiler will 
-look up address locations on loads and stores to determine whether it is local/remote 
-and will also determine whether it is cached or not. Additionally all cached data will 
-be tagged with a dirty delta to allow for seamless release consistency. On releases 
-data will be written back to its home-node and only modified data will be written back 
+support LOCO as a backend for disaggregated memory. Ideally allowing programs 
+written for OpenMP to work seamlessly in a disaggregated setting.
+These modifications include modifying dynamic memory allocation to use special 
+virtual addresses for LOCO objects and modifying load/store behavior for these 
+special addresses. 
+There will also be a system to determine whether a remote address is cached or not.
+All cached data will be tagged with a dirty delta to allow for seamless release consistency. 
+On releases data will be written back to its home-node and only modified data will be written back 
 (scatter). If two nodes wish to write back the same byte-area they are in a data race 
-and it is the programmers fault. 
+and it is the programmer's fault. 
 
-There will be {} major components in this design. They are as follows:
+The first iteration of this design should include all heap memory in a LOCO hashtable and
+simply perform read/write for each load/store and an insert/delete for each new/delete. 
+Since all shared data for OpenMP is on the heap, there is a nice analog to insert/delete 
+for each allocation or deallocation of shared data. Tentatively it seems that stack
+accesses can be ignored by leaving calls to alloca alone and ensuring that "regular" 
+memory addresses behave as normal.
 
-\begin{itemize}
-    \item Load/store compiler modification. Need to detect these special loads and stores
-    So this might be in LLVM's SelectionDAGBuilder.cpp in "visitStore" and "visitLoad". 
-    llvm-project/llvm/lib/CodeGen/SelectionDAG/SelectionDAGBuilder.
-    \item LOCO loads/stores need to be tagged at some point. Either these objects should 
-    be at special virtual addresses by modifying malloc things. I am thinking this will be 
-    done in clang (llvm-project/clang/lib/CodeGen/CGExprCXX.cpp) what I found here should work 
-    for calls with new, note sure about malloc. Malloc might be in CGCall??
-    \item synchronization primitive modification for OpenMP.
-    \item non-cached memory will be stored as a hash map.
-\end{itemize}
+\subsection{New and Malloc}
+Calls to malloc and new need to be handled correctly in the frontend. So in clang
+there should be a call to a special LOCO runtime function to allocation LOCO memory.
+e.g. locomalloc. (basically just an insert at a new special memory address)
+
+% This modification could also just be done on LOCO itself by overloading new.
+
+\subsection{Load / Store behavior}
+Loads and stores to new LOCO memory locations need to be handled differently. 
+We will create new functions remoteload and remotestore which will replace
+loads and stores in LLVM IR based on the virtual address of the operands.
+This can be done in a special pass after the LLVM IR has been created which will maintain the 
+modularity that LLVM has. There may also be a need to modify atomic loads and stores 
+differently than others, but lock-guarded accesses should behave identically.
+
+\begin{figure}
+    \centering
+    \begin{subfigure}{0.45\textwidth}
+    \begin{lstlisting}[basicstyle={\ttfamily\scriptsize}]
+    for (auto &I : instructions(F)) {
+      if (auto *Load = dyn_cast<LoadInst>(&I)) {
+        if (isRemoteAddress(Load->getPointerOperand())) {
+          // Replace with remote_load
+          IRBuilder<> Builder(Load);
+          Value *RemoteLoadCall = Builder.CreateCall(
+              RemoteLoadFunc, {Load->getPointerOperand()});
+          Load->replaceAllUsesWith(RemoteLoadCall);
+          Load->eraseFromParent();
+          }
+      }
+    }
+    \end{lstlisting}
+    \end{subfigure}
+    \caption{IR modification code}
+    \label{fig:ir-modification}
+    \end{figure}
+
+the load store modification might look something like Figure~\ref{fig:ir-modification}
 
 
+
+\subsection{synchronization primitives}
+For this backend to work seamlessly with LOCO there may be a need to replace 
+synchronization primitives with LOCO analogs. I am unsure of how these primitives might 
+work with things like task synchronization and thread numbering across nodes.
+
+% There will be {} major components in this design. They are as follows:
+
+% \begin{itemize}
+%     \item Load/store compiler modification. Need to detect these special loads and stores
+%     So this might be in LLVM's SelectionDAGBuilder.cpp in "visitStore" and "visitLoad". 
+%     llvm-project/llvm/lib/CodeGen/SelectionDAG/SelectionDAGBuilder.
+%     \item LOCO loads/stores need to be tagged at some point. Either these objects should 
+%     be at special virtual addresses by modifying malloc things. I am thinking this will be 
+%     done in clang (llvm-project/clang/lib/CodeGen/CGExprCXX.cpp) what I found here should work 
+%     for calls with new, note sure about malloc. Malloc might be in CGCall??
+%     \item synchronization primitive modification for OpenMP.
+%     \item non-cached memory will be stored as a hash map.
+% \end{itemize}
+
+\section{outstanding questions}
 some outstanding questions to answer:
 \begin{itemize}
-    \item does the local node cache its own data?
-    \item does a system like this exist for TCP/IP?
-    \item specifics of design implementation. i.e does loco have all openMP primitives?
+    \item how does the local node know what data is local? -- hashtable lookup for local heap 
+    may be somewhat costly
+    \item does a system like this exist for TCP/IP? -- not to my knowledge
+    \item specifics of design implementation. i.e does loco have all openMP primitives? It 
+    seems that LOCO has a corresponding synchronization primitive for each of openMP's, but it 
+    may be difficult to determine when to use each primitive.
+    \item should GCC or LLVM be used? It looks like GCC has hooks for malloc/realloc/free which 
+    would allow for easy integration. But then I am not sure where the insertion point for modifying 
+    load/stores is. LLVM on the other hand is very modular and it would be easy to add a shim layer 
+    to modify IR. 
 \end{itemize}
 
-\section{My TODO list}
+\section{My TODO list / other notes on project progression}
 \begin{itemize}
-    \item get cmatose.c working on r320s to diagnose issue. (is it librdmacm?). CMATost
-    works. THe issue must be in our configuration
+    \item get cmatose.c working on r320s to diagnose issue. (is it librdmacm?). cmatose
+    works. The issue must be in our configuration -- but why does hardware impact this?
     \item invalid args from loco on r320s, seems to not in in hostname lookup, but maybe 
-    in rdma_getaddrinfo from that hostname. Will need to check and debug that specifically.
+    in rdmagetaddrinfo from that hostname. Will need to check and debug that specifically.
     \item change all config scripts in Odyssey.
     \item Finish this proposal.
 \end{itemize}
