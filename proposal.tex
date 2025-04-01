@@ -30,11 +30,15 @@ accesses can be ignored by leaving calls to alloca alone and ensuring that "regu
 memory addresses behave as normal.
 
 \subsection{New and Malloc}
-Calls to malloc and new need to be handled correctly in the frontend. So in clang
-there should be a call to a special LOCO runtime function to allocation LOCO memory.
-e.g. locomalloc. (basically just an insert at a new special memory address)
+Calls to malloc and new need to be handled correctly in the frontend. So either in clang
+or in the LLVM IR there should be a call to a special LOCO runtime function to allocation 
+LOCO memory. e.g. locomalloc. (basically just an insert at a new special memory address).
+Refer to this tutorial on adding a pass to LLVM IR: \url{https://www.cs.cornell.edu/%7Easampson/blog/llvm.html}
 
-% This modification could also just be done on LOCO itself by overloading new.
+The first iteration of this design might look like just replacing every call to malloc 
+with a special malloc that creates an entry in LOCO hashtable. Later this should only 
+be done for shared variables. I am unsure as of now how to determine what is shared
+but it seems like these things would need to be changed in the clang frontend.
 
 \subsection{Load / Store Behavior}
 Loads and stores to new LOCO memory locations need to be handled differently. 
@@ -68,20 +72,19 @@ differently than others, but lock-guarded accesses should behave identically.
 
 the load store modification might look something like Figure~\ref{fig:ir-modification}
 
-
-
-\subsection{Synchronization Primitives}
-For this backend to work seamlessly with LOCO there may be a need to replace 
-synchronization primitives with LOCO analogs. I am unsure of how these primitives might 
-work with things like task synchronization and thread numbering across nodes.
+% \subsection{Synchronization Primitives}
+% For this backend to work seamlessly with LOCO there may be a need to replace 
+% synchronization primitives with LOCO analogs. I am unsure of how these primitives might 
+% work with things like task synchronization and thread numbering across nodes.
 
 
 \subsection{Memory Consistency}
-The memory consistency model in this design should be relatively simple. There 
-is release consistency. I would assume that on each write release all local changes
+The memory consistency model in this design should be relatively simple. We aim for 
+release consistency. I would assume that on each write release all local changes
 are pushed to their remote locations ensuring all previous writes are visible before
 and subsequent writes. If doing an acquire load it may be necessary to pull remote 
-changes. I assume it will be unless we broadcast releases to all nodes somehow
+changes. In LLVM IR loads may be atomic and, if they are, they will have a tag 
+denoting whether they are acquires or releases.
 
 
 \subsection{Caching}
@@ -93,12 +96,12 @@ I think the most logical thing to do is to store all hashtable accesses on the s
 and to add them to some cache-table which will be accessed first on lookups. If there 
 is a acquire load or a write release RDMA operations are required.
 
-\subsection{OpenMP Integration}
+\subsection{OpenMP Integration and Synchronization Primitives}
 LOCO supports seemingly all OpenMP synchronization primitives, below is a table of 
 analogous operations:
 
 \begin{center}
-    \begin{tabular}{ |c|c|c| } 
+    \begin{tabular}{ |c|c| } 
      \hline
      omp-Barrier & LOCO-Barrier (either local or Global) \\ 
      \hline
