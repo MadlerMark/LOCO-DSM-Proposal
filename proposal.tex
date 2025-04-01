@@ -36,7 +36,7 @@ e.g. locomalloc. (basically just an insert at a new special memory address)
 
 % This modification could also just be done on LOCO itself by overloading new.
 
-\subsection{Load / Store behavior}
+\subsection{Load / Store Behavior}
 Loads and stores to new LOCO memory locations need to be handled differently. 
 We will create new functions remoteload and remotestore which will replace
 loads and stores in LLVM IR based on the virtual address of the operands.
@@ -70,27 +70,49 @@ the load store modification might look something like Figure~\ref{fig:ir-modific
 
 
 
-\subsection{synchronization primitives}
+\subsection{Synchronization Primitives}
 For this backend to work seamlessly with LOCO there may be a need to replace 
 synchronization primitives with LOCO analogs. I am unsure of how these primitives might 
 work with things like task synchronization and thread numbering across nodes.
 
-% There will be {} major components in this design. They are as follows:
 
 \subsection{Memory Consistency}
 The memory consistency model in this design should be relatively simple. There 
-is release consistency. I would assume that on each write to a location
-% \begin{itemize}
-%     \item Load/store compiler modification. Need to detect these special loads and stores
-%     So this might be in LLVM's SelectionDAGBuilder.cpp in "visitStore" and "visitLoad". 
-%     llvm-project/llvm/lib/CodeGen/SelectionDAG/SelectionDAGBuilder.
-%     \item LOCO loads/stores need to be tagged at some point. Either these objects should 
-%     be at special virtual addresses by modifying malloc things. I am thinking this will be 
-%     done in clang (llvm-project/clang/lib/CodeGen/CGExprCXX.cpp) what I found here should work 
-%     for calls with new, note sure about malloc. Malloc might be in CGCall??
-%     \item synchronization primitive modification for OpenMP.
-%     \item non-cached memory will be stored as a hash map.
-% \end{itemize}
+is release consistency. I would assume that on each write release all local changes
+are pushed to their remote locations ensuring all previous writes are visible before
+and subsequent writes. If doing an acquire load it may be necessary to pull remote 
+changes. I assume it will be unless we broadcast releases to all nodes somehow
+
+
+\subsection{Caching}
+To cache data while all loads and stores are handled through this new hashtable 
+mechanism we will require a scheme to save all read-accesses temporarily. Since 
+we are not modifying how the stack behaves this could be where local cache is, this 
+also works because it is assumed that cached data is not shared between threads.
+I think the most logical thing to do is to store all hashtable accesses on the stack 
+and to add them to some cache-table which will be accessed first on lookups. If there 
+is a acquire load or a write release RDMA operations are required.
+
+\subsection{OpenMP Integration}
+LOCO supports seemingly all OpenMP synchronization primitives, below is a table of 
+analogous operations:
+
+\begin{center}
+    \begin{tabular}{ |c|c|c| } 
+     \hline
+     omp-Barrier & LOCO-Barrier (either local or Global) \\ 
+     \hline
+     omp-Flush & write + LOCO fence\\ 
+     \hline
+     omp-critical & use LOCO locks \\ 
+     \hline
+     omp-atomic & use LOCO atomic writes \\
+     \hline
+     omp-ordered & use barriers? \\
+     \hline
+    \end{tabular}
+\end{center}
+
 
 \section{outstanding questions}
 some outstanding questions to answer:
@@ -111,9 +133,15 @@ some outstanding questions to answer:
 \begin{itemize}
     \item get cmatose.c working on r320s to diagnose issue. (is it librdmacm?). cmatose
     works. The issue must be in our configuration -- but why does hardware impact this?
-    \item invalid args from loco on r320s, seems to not in in hostname lookup, but maybe 
-    in rdmagetaddrinfo from that hostname. Will need to check and debug that specifically.
-    \item change all config scripts in Odyssey.
+    \item invalid args from loco on r320s, seems to not in in hostname lookup, but errors 
+    on \texttt{rdma\_connect()} as called from \texttt{lf\_peer} l.329 from \texttt{lf\_network::init()} and manager.
+    It appears that there is some issue with how the endpoint is setup or in the connection 
+    parameters. Maybe this issue is due to the fact that the NIC may not support IPv4? 
+    It really seems like this is because of hostname issues. I think that looking up addresses
+    from hostname is not working in this context. The IP address associated with the destination 
+    is not even found in the dns server?? It is some address in Korea..
+    \item change all config scripts in Odyssey. Changes seem to be mostly made, but 
+    still there is issue where copy-run.sh stalls after building
     \item Finish this proposal.
 \end{itemize}
 
@@ -121,3 +149,16 @@ some outstanding questions to answer:
 % \bibliographystyle{acm}
 % \bibliography{relworks}
 \end{document}
+
+% There will be {} major components in this design. They are as follows:
+% \begin{itemize}
+%     \item Load/store compiler modification. Need to detect these special loads and stores
+%     So this might be in LLVM's SelectionDAGBuilder.cpp in "visitStore" and "visitLoad". 
+%     llvm-project/llvm/lib/CodeGen/SelectionDAG/SelectionDAGBuilder.
+%     \item LOCO loads/stores need to be tagged at some point. Either these objects should 
+%     be at special virtual addresses by modifying malloc things. I am thinking this will be 
+%     done in clang (llvm-project/clang/lib/CodeGen/CGExprCXX.cpp) what I found here should work 
+%     for calls with new, note sure about malloc. Malloc might be in CGCall??
+%     \item synchronization primitive modification for OpenMP.
+%     \item non-cached memory will be stored as a hash map.
+% \end{itemize}
