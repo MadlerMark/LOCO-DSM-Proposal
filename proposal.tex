@@ -10,29 +10,32 @@
 \maketitle
 
 \section{Design}
-This work will consist of modifying an existing compiler (gcc or llvm**) to 
-support LOCO as a backend for disaggregated memory. Ideally allowing programs 
-written for OpenMP to work seamlessly in a disaggregated setting.
+This work will consist of modifying an existing compiler (llvm) to 
+support LOCO as a backend for disaggregated memory. These modifications will allow programs 
+written in the OpenMP style to work seamlessly in a disaggregated setting.
 These modifications include modifying dynamic memory allocation to use special 
 virtual addresses for LOCO objects and modifying load/store behavior for these 
 special addresses. 
-There will also be a system to determine whether a remote address is cached or not.
+There will also be a system to determine whether a remote address is cached or not (an additional 
+hashmap lookup).
 All cached data will be tagged with a dirty delta to allow for seamless release consistency. 
 On releases data will be written back to its home-node and only modified data will be written back 
-(scatter). If two nodes wish to write back the same byte-area they are in a data race 
-and it is the programmer's fault. 
+with a scatter-like operation. If two nodes wish to write back the same byte-area they are in a data race 
+and it is the programmer's fault. LOCO-DSM will behave exactly like regular release consistency programming.
 
 The first iteration of this design should include all heap memory in a LOCO hashtable and
 simply perform read/write for each load/store and an insert/delete for each new/delete. 
 Since all shared data for OpenMP is on the heap, there is a nice analog to insert/delete 
 for each allocation or deallocation of shared data. Tentatively it seems that stack
 accesses can be ignored by leaving calls to alloca alone and ensuring that "regular" 
-memory addresses behave as normal.
+memory addresses behave as normal. Additionally, each thread's stack will hold all of their
+cached values.
 
 \subsection{New and Malloc}
-Calls to malloc and new need to be handled correctly in the frontend. So either in clang
-or in the LLVM IR there should be a call to a special LOCO runtime function to allocation 
-LOCO memory. e.g. locomalloc. (basically just an insert at a new special memory address).
+Calls to malloc and new need to be handled correctly in the frontend. So in future
+iterations of this work, only shared variables will be tagged at some point in the 
+compilation process. Tthese tagged variables in the LLVM IR should call a special LOCO 
+runtime function that handles allocation. e.g. locomalloc. (basically just an insert at a new special memory address).
 Refer to this tutorial on adding a pass to LLVM IR: \url{https://www.cs.cornell.edu/%7Easampson/blog/llvm.html}
 
 The first iteration of this design might look like just replacing every call to malloc 
@@ -80,11 +83,17 @@ the load store modification might look something like Figure~\ref{fig:ir-modific
 
 \subsection{Memory Consistency}
 The memory consistency model in this design should be relatively simple. We aim for 
-release consistency. I would assume that on each write release all local changes
-are pushed to their remote locations ensuring all previous writes are visible before
-and subsequent writes. If doing an acquire load it may be necessary to pull remote 
-changes. In LLVM IR loads may be atomic and, if they are, they will have a tag 
-denoting whether they are acquires or releases.
+lazy release consistency. This means that it will be the responsibility of the programmer 
+to ensure data race freedom. The benefit of release consistency is that only on acquire
+and releases is communication necessary. Since each thread is abble to order its own releases
+it is also possible to batch store releases. If doing an acquire load it will be necessary to pull remote 
+changes. 
+In LLVM IR loads and stores have a tag denoting whether they are acquires or releases.
+
+To my undestanding it is acceptable to integrate this extremely lazy release consistency 
+with OpenMP's memory model. OpenMP tags writes and reads as acquires and releases, the only 
+additional feature LOCO needs to add is that at synchronization points all uncommitted writes
+must be flushed.
 
 
 \subsection{Caching}
